@@ -1,147 +1,135 @@
-#include<iostream>
-#include<WinSock2.h>
-#include<ws2tcpip.h>
-#include<tchar.h>
-#include<thread>
-#include<vector>
+#include <iostream>
+#include <WinSock2.h>
+#include <ws2tcpip.h>
+#include <tchar.h>
+#include <thread>
+#include <vector>
 
 using namespace std;
 
 #pragma comment(lib, "ws2_32.lib")
-/*	
-	
-	//Initialize winsock library +finalize
 
-	//create socket
+class Server {
+protected:
+    int port;
+    SOCKET listenSocket;
+    vector<SOCKET> clients;
 
-	//get ip and port
+public:
+    Server(int port) : port(port), listenSocket(INVALID_SOCKET) {
+        if (!Initialize()) {
+            cerr << "Winsock initialization failed" << endl;
+            exit(1);
+        }
+    }
 
-	//bind ip and port with socket
+    ~Server() {
+        Cleanup();
+    }
 
-	//listen on socket
+    void Start() {
+        CreateSocket();
+        BindSocket();
+        ListenOnSocket();
+        AcceptClients();
+    }
 
-	//accept (blocking call)
+    bool Initialize() {
+        WSADATA data;
+        return WSAStartup(MAKEWORD(2, 2), &data) == 0;
+    }
 
-	//recv and send
+    void Cleanup() {
+        if (listenSocket != INVALID_SOCKET) {
+            closesocket(listenSocket);
+        }
+        WSACleanup();
+    }
 
-	//close socket
+    void CreateSocket() {
+        listenSocket = socket(AF_INET, SOCK_STREAM, 0);
+        if (listenSocket == INVALID_SOCKET) {
+            cerr << "Socket creation failed" << endl;
+            Cleanup();
+            exit(1);
+        }
+    }
 
-	//cleanup winsock library
+    void BindSocket() {
+        sockaddr_in serverAddr;
+        serverAddr.sin_family = AF_INET;
+        serverAddr.sin_port = htons(port);
 
-*/
+        if (InetPton(AF_INET, _T("0.0.0.0"), &serverAddr.sin_addr) != 1) {
+            cerr << "Setting address structure failed" << endl;
+            Cleanup();
+            exit(1);
+        }
 
-bool Initialize() {
+        if (bind(listenSocket, reinterpret_cast<sockaddr*>(&serverAddr), sizeof(serverAddr)) == SOCKET_ERROR) {
+            cerr << "Bind failed" << endl;
+            Cleanup();
+            exit(1);
+        }
+    }
 
-	WSADATA data;
-	return WSAStartup(MAKEWORD(2,2), &data) == 0;
-}
+    void ListenOnSocket() {
+        if (listen(listenSocket, SOMAXCONN) == SOCKET_ERROR) {
+            cerr << "Listen failed" << endl;
+            Cleanup();
+            exit(1);
+        }
+        cout << "Server has started listening on port: " << port << endl;
+    }
 
+    void AcceptClients() {
+        while (true) {
+            SOCKET clientSocket = accept(listenSocket, nullptr, nullptr);
+            if (clientSocket == INVALID_SOCKET) {
+                cerr << "Invalid client socket" << endl;
+                continue;
+            }
+            clients.push_back(clientSocket);
+            thread t(&Server::InteractWithClient, this, clientSocket);
+            t.detach();
+        }
+    }
 
-void InteractWithClient(SOCKET clientsocket, vector<SOCKET>& clients) {
+    void InteractWithClient(SOCKET clientSocket) {
+        cout << "Client connected" << endl;
+        char buffer[4096];
 
-	//send and recv
-	
-	cout << "Client connected" << endl;
-	char buffer[4096];
+        while (true) {
+            int bytesReceived = recv(clientSocket, buffer, sizeof(buffer), 0);
+            if (bytesReceived <= 0) {
+                cout << "Client disconnected" << endl;
+                break;
+            }
 
-	while (true) {
-		int bytesrecvd = recv(clientsocket, buffer, sizeof(buffer), 0);
+            string message(buffer, bytesReceived);
+            cout << "Message from client: " << message << endl;
 
-		if (bytesrecvd <= 0) {
-			cout << "\nClient disconnected" << endl;
-			break;
-		}
+            for (auto client : clients) {
+                if (client != clientSocket) {
+                    send(client, message.c_str(), message.length(), 0);
+                }
+            }
+        }
 
-		string message(buffer, bytesrecvd);
-		cout << "\nMessage from client : " << message;
+        RemoveClient(clientSocket);
+    }
 
-		for (auto client : clients) {
-			if (client != clientsocket) {
-				send(client, message.c_str(), message.length(), 0);
-			}
-		}
-
-	}
-	// To remove the disconnected clients from the vector so it doesnt have it stored
-	auto it = find(clients.begin(), clients.end(), clientsocket);
-	if (it != clients.end()) {
-		clients.erase(it);
-	}
-	closesocket(clientsocket);
-}
-
-
+    void RemoveClient(SOCKET clientSocket) {
+        auto it = find(clients.begin(), clients.end(), clientSocket);
+        if (it != clients.end()) {
+            clients.erase(it);
+        }
+        closesocket(clientSocket);
+    }
+};
 
 int main() {
-
-	if (!Initialize()) {
-		cout << "Winsock initialization failed " << endl;
-		return 1;
-	}
-
-	cout << "Server Program " << endl;
-
-	SOCKET listenSocket = socket(AF_INET, SOCK_STREAM, 0);
-
-	if (listenSocket == INVALID_SOCKET) {
-
-		cout << "Socket creation failed " << endl;
-		return 1;
-	}
-
-	//create address structure
-
-	int port = 55555;
-	sockaddr_in serveraddr;
-	serveraddr.sin_family = AF_INET;
-	serveraddr.sin_port = htons(port); //api called host to networks
-
-	//convert ip add (0.0.0.0) put it inside the sin_family in binary format
-	
-	if (InetPton(AF_INET, _T("0.0.0.0"), &serveraddr.sin_addr) != 1) {
-		cout << "Setting address structure failed" << endl;
-		closesocket(listenSocket);
-		WSACleanup();
-		return 1;
-	}
-
-	//bind
-
-	if (bind(listenSocket, reinterpret_cast<sockaddr*>(&serveraddr), sizeof(serveraddr)) == SOCKET_ERROR) {
-
-		cout << "Bind failed " << endl;
-		closesocket(listenSocket);
-		WSACleanup();
-		return 1;
-	}
-
-	//listen
-
-	if (listen(listenSocket, SOMAXCONN) == SOCKET_ERROR) {
-
-		cout << "Listen failed" << endl;
-		closesocket(listenSocket);
-		WSACleanup();
-		return 1;
-	}
-
-	cout << "Server has started listening on port : " << port << endl;
-	vector<SOCKET> clients;
-	
-		while (true) {
-			//accept
-
-			SOCKET clientsocket = accept(listenSocket, nullptr, nullptr); 
-			if (clientsocket == INVALID_SOCKET) { 
-				cout << "Invalid client socket" << endl;
-		}
-			clients.push_back(clientsocket);
-			thread t1(InteractWithClient, clientsocket, std::ref(clients));
-			t1.detach();
-	}
-
-	closesocket(listenSocket);
-
-	WSACleanup();
-	return 0;
+    Server server(55555);
+    server.Start();
+    return 0;
 }
