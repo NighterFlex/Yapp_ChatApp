@@ -1,5 +1,5 @@
 # Yapp_ChatApp
-This is a chat application designed by Group No. 4 of BSCS - 2B (Semester 2)
+This is a chat application designed by me.
 Chat App README
 
 Introduction
